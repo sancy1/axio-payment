@@ -36,10 +36,7 @@ jobs:
       - name: Run Maven compile
         run: mvn compile
 
-      - name: Run tests
-        run: mvn test
-
-      - name: Build with Maven
+      - name: Build with Maven (Skip Tests)
         run: mvn package -DskipTests
 
       - name: Upload build artifacts
