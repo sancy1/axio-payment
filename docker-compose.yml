@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: payment-service-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-axio_prod}
+      POSTGRES_USER: ${DB_USERNAME:-neondb_owner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-npg_U8q4DIVoXdpL}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-neondb_owner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - payment-network
+    restart: unless-stopped
+
+  # Payment Service Application
+  payment-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: payment-service-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database Configuration
+      DATABASE_URL: ${DATABASE_URL:-jdbc:postgresql://postgres:5432/axio_prod?sslmode=disable}
+      DB_USERNAME: ${DB_USERNAME:-neondb_owner}
+      DB_PASSWORD: ${DB_PASSWORD:-npg_U8q4DIVoXdpL}
+
+      # Paystack Configuration
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      PAYSTACK_PUBLIC_KEY: ${PAYSTACK_PUBLIC_KEY}
+      PAYSTACK_BASE_URL: ${PAYSTACK_BASE_URL:-https://api.paystack.co}
+      PAYSTACK_CALLBACK_URL: ${PAYSTACK_CALLBACK_URL}
+      PAYSTACK_WEBHOOK_URL: ${PAYSTACK_WEBHOOK_URL}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+
+      # Email Configuration (Gmail SMTP)
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM:-AxioQuan <noreply@axioquan.com>}
+
+      # Application Configuration
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      SERVER_CONTEXT_PATH: ${SERVER_CONTEXT_PATH:-/api}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # Java Configuration
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - payment-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  payment-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,83 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+#################################################################
+# SENSITIVE FILES - DO NOT COMMIT TO GITHUB
+#################################################################
+
+### Environment Variables ###
+.env
+.env.local
+.env.*.local
+
+### Sensitive Documentation Files ###
+DEPLOYMENT_READINESS_REPORT.md
+EMAIL_AND_NOTIFICATION_TESTING_GUIDE.md
+INTEGRATION_GUIDE.md
+JWT_GUIDE.md
+NOTIFICATION_API_POSTMAN_GUIDE.md
+PAYMENT_TESTING_GUIDE.md
+PAYMENT_VERIFICATION_FIX_SUMMARY.md
+PAYMENT_VS_TRANSACTION_GUIDE.md
+PHASE_3_IMPLEMENTATION_ROADMAP.md
+POSTMAN_TESTING_GUIDE.md
+QUICK_START.md
+SETUP_COMPLETE.md
+TRANSACTION_SERVICE_IMPLEMENTATION.md
+TRANSACTION_SERVICE_POSTMAN_GUIDE.md
+
+### Sensitive Text Files ###
+*.txt
+endpoints.txt
+IMPLEMENTATION_COMPLETE.txt
+server-logs.txt
+
+### Sensitive Database/SQL Files ###
+*.sql
+DATABASE_SCHEMA_DISCOVERY.sql
+FIX_AUTO_ENROLL_TRIGGER.sql
+TEST_DATA_SETUP.sql
+
+### Java Crash Dumps ###
+hs_err_pid*.log
+replay_pid*.log
+*.log
+
+### Postman Collections (May contain test data) ###
+*.postman_collection.json
+*.postman_environment.json
+
+### OS ###
+.DS_Store
+Thumbs.db

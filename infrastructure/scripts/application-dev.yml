@@ -1,0 +1,21 @@
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  datasource:
+    url: jdbc:postgresql://ep-jolly-cell-ai33uxot-pooler.c-4.us-east-1.aws.neon.tech:5432/axio_prod?sslmode=require
+    username: neondb_owner
+    password: npg_U8q4DIVoXdpL
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true

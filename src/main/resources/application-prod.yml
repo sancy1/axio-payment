@@ -1,0 +1,58 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: ${SERVER_CONTEXT_PATH:/api}
+
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://ep-jolly-cell-ai33uxot-pooler.c-4.us-east-1.aws.neon.tech:5432/axio_prod?sslmode=require}
+    username: ${DB_USERNAME:neondb_owner}
+    password: ${DB_PASSWORD:npg_U8q4DIVoXdpL}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+          fetch_size: 50
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    out-of-order: false
+
+  sql:
+    init:
+      mode: never
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.axioquan: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:Nd+/W0t/O9O6+TId5eB6W779m02ar5gf+Y13JBvSCuE=}
+  expiration: ${JWT_EXPIRATION:604800000}
+
+# Paystack Configuration
+paystack:
+  secret-key: ${PAYSTACK_SECRET_KEY:sk_test_e7ffba8d840e040ded09907ec868eab1a43fce58}
+  public-key: ${PAYSTACK_PUBLIC_KEY:pk_test_f85f8a8fcc639dd55436ebf69401e4bd9eef2dae}
+  base-url: ${PAYSTACK_BASE_URL:https://api.paystack.co}
+  callback-url: ${PAYSTACK_CALLBACK_URL:https://axio-prod-dev.onrender.com/payment-success}
+  webhook-url: ${PAYSTACK_WEBHOOK_URL:http://localhost:8080/api/v1/payments/webhook}
+  webhook-secret: ${WEBHOOK_SECRET:AxioQuan_Secure_2026_!_99}
+
+# Frontend URL
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:3000}
