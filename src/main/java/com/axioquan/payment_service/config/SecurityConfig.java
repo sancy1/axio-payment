@@ -6,6 +6,7 @@
 
 package com.axioquan.payment_service.config;
 
+import com.axioquan.payment_service.middleware.RateLimitFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -17,9 +18,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final RateLimitFilter rateLimitFilter;
 
-    public SecurityConfig(JwtTokenProvider jwtTokenProvider) {
+    public SecurityConfig(JwtTokenProvider jwtTokenProvider, RateLimitFilter rateLimitFilter) {
         this.jwtTokenProvider = jwtTokenProvider;
+        this.rateLimitFilter = rateLimitFilter;
     }
 
     @Bean
@@ -49,6 +52,8 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             )
             .httpBasic(basic -> basic.disable())
+            // ✅ NEW: Add rate limiting filter BEFORE JWT authentication
+            .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
