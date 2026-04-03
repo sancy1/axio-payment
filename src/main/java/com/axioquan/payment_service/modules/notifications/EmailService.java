@@ -7,7 +7,7 @@ package com.axioquan.payment_service.modules.notifications;
 public interface EmailService {
 
     /**
-     * Send an email.
+     * Send an email (blocking - waits for completion).
      * @param to The recipient email address
      * @param subject The email subject
      * @param body The email body (supports HTML)
@@ -15,10 +15,19 @@ public interface EmailService {
     void send(String to, String subject, String body);
 
     /**
-     * Send an email with HTML content.
+     * Send an email with HTML content (blocking - waits for completion).
      * @param to The recipient email address
      * @param subject The email subject
      * @param htmlBody The email body in HTML format
      */
     void sendHtml(String to, String subject, String htmlBody);
+
+    /**
+     * Send an email asynchronously (non-blocking - returns immediately).
+     * Failures are logged but do NOT affect calling code.
+     * @param to The recipient email address
+     * @param subject The email subject
+     * @param htmlBody The email body in HTML format
+     */
+    void sendHtmlAsync(String to, String subject, String htmlBody);
 }

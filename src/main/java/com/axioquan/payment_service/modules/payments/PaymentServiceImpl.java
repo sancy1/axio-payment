@@ -29,6 +29,8 @@ import com.axioquan.payment_service.modules.webhooks.dto.WebhookPayload;
 import com.axioquan.payment_service.modules.courses.CourseRepository;
 import com.axioquan.payment_service.modules.enrollments.EnrollmentRepository;
 import com.axioquan.payment_service.modules.notifications.NotificationService;
+import com.axioquan.payment_service.modules.notifications.EmailService;
+import com.axioquan.payment_service.modules.auth.UserRepository;
 import com.axioquan.payment_service.utils.CurrencyConverter;
 import com.axioquan.payment_service.utils.UserCurrencyResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,6 +64,12 @@ public class PaymentServiceImpl implements PaymentService {
 
     // ✅ NEW: Notification service for in-app notification creation
     private final NotificationService notificationService;
+
+    // ✅ NEW: Email service for async confirmation emails
+    private final EmailService emailService;
+
+    // ✅ NEW: User repository for fetching user email
+    private final UserRepository userRepository;
 
     // ✅ Currency tools
     private final CurrencyConverter currencyConverter;
@@ -249,6 +257,9 @@ public class PaymentServiceImpl implements PaymentService {
                 // ✅ NEW: Create in-app notification for payment success
                 createPaymentSuccessNotification(payment);
 
+                // ✅ NEW: Send async confirmation email (won't break payment if it fails)
+                sendPaymentConfirmationEmail(payment);
+
                 return buildResponse(payment);
             }
 
@@ -310,6 +321,9 @@ public class PaymentServiceImpl implements PaymentService {
 
                 // ✅ NEW: Create in-app notification for payment success
                 createPaymentSuccessNotification(payment);
+
+                // ✅ NEW: Send async confirmation email (won't break payment if it fails)
+                sendPaymentConfirmationEmail(payment);
             }
         });
     }
@@ -388,6 +402,120 @@ public class PaymentServiceImpl implements PaymentService {
             // Log error but don't fail the payment process if notification creation fails
             log.error("Failed to create payment success notification for user: {}", payment.getUserId(), e);
         }
+    }
+
+    // ✅ NEW: Send async confirmation email (won't break payment if it fails)
+    private void sendPaymentConfirmationEmail(Payment payment) {
+        log.info("Sending payment confirmation email for reference: {}", payment.getReference());
+
+        try {
+            // Fetch user email
+            var user = userRepository.findById(payment.getUserId())
+                    .orElseThrow(() -> new RuntimeException("User not found"));
+
+            // Fetch course name
+            String courseName = courseRepository.findById(payment.getCourseId())
+                    .map(Course::getTitle)
+                    .orElse("Your course");
+
+            // Build confirmation email subject
+            String subject = "Payment Confirmed ✅ - " + courseName;
+
+            // Build HTML email body
+            String htmlBody = buildPaymentConfirmationEmailHtml(
+                    user.getName(),
+                    courseName,
+                    payment.getAmountCents() / 100.0,
+                    payment.getCurrency(),
+                    payment.getReference(),
+                    new Date()
+            );
+
+            // Send async (won't block payment process)
+            emailService.sendHtmlAsync(user.getEmail(), subject, htmlBody);
+
+            log.info("[ASYNC] Payment confirmation email queued for: {}", user.getEmail());
+
+        } catch (Exception e) {
+            // CRITICAL: Log error but do NOT throw (payment is already successful)
+            log.warn("[ASYNC] Failed to queue payment confirmation email (non-critical)", e);
+        }
+    }
+
+    // ✅ Build HTML email template for payment confirmation
+    private String buildPaymentConfirmationEmailHtml(
+            String firstName,
+            String courseName,
+            double amount,
+            String currency,
+            String reference,
+            Date paymentDate) {
+
+        return String.format(
+                "<!DOCTYPE html>" +
+                "<html>" +
+                "<head>" +
+                "  <meta charset='UTF-8'>" +
+                "  <style>" +
+                "    body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }" +
+                "    .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }" +
+                "    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 30px; }" +
+                "    .header h1 { margin: 0; font-size: 28px; }" +
+                "    .content { color: #333; line-height: 1.6; }" +
+                "    .success-icon { font-size: 24px; margin-right: 10px; }" +
+                "    .details { background-color: #f9f9f9; padding: 15px; border-left: 4px solid #667eea; margin: 20px 0; }" +
+                "    .detail-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }" +
+                "    .detail-row:last-child { border-bottom: none; }" +
+                "    .detail-label { font-weight: bold; color: #555; }" +
+                "    .detail-value { color: #333; }" +
+                "    .button { display: inline-block; background-color: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 4px; margin-top: 20px; }" +
+                "    .footer { color: #999; font-size: 12px; text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }" +
+                "  </style>" +
+                "</head>" +
+                "<body>" +
+                "  <div class='container'>" +
+                "    <div class='header'>" +
+                "      <h1><span class='success-icon'>✅</span>Payment Confirmed</h1>" +
+                "    </div>" +
+                "    <div class='content'>" +
+                "      <p>Hi <strong>%s</strong>,</p>" +
+                "      <p>Thank you for your payment! We've successfully received your payment for <strong>%s</strong>.</p>" +
+                "      <div class='details'>" +
+                "        <div class='detail-row'>" +
+                "          <span class='detail-label'>Course:</span>" +
+                "          <span class='detail-value'>%s</span>" +
+                "        </div>" +
+                "        <div class='detail-row'>" +
+                "          <span class='detail-label'>Amount Paid:</span>" +
+                "          <span class='detail-value'>%.2f %s</span>" +
+                "        </div>" +
+                "        <div class='detail-row'>" +
+                "          <span class='detail-label'>Reference:</span>" +
+                "          <span class='detail-value'>%s</span>" +
+                "        </div>" +
+                "        <div class='detail-row'>" +
+                "          <span class='detail-label'>Date:</span>" +
+                "          <span class='detail-value'>%s</span>" +
+                "        </div>" +
+                "      </div>" +
+                "      <p>You can now access the course content immediately.</p>" +
+                "      <p>If you have any questions, please don't hesitate to contact our support team.</p>" +
+                "      <p>Best regards,<br><strong>Axio Quan Team</strong></p>" +
+                "    </div>" +
+                "    <div class='footer'>" +
+                "      <p>This is an automated email. Please do not reply to this message.</p>" +
+                "    </div>" +
+                "  </div>" +
+                "</body>" +
+                "</html>",
+                firstName,
+                courseName,
+                courseName,
+                amount,
+                currency,
+                reference,
+                new java.text.SimpleDateFormat("MMMM dd, yyyy HH:mm:ss").format(paymentDate)
+        );
     }
 
     private VerifyPaymentResponse buildResponse(Payment payment) {
