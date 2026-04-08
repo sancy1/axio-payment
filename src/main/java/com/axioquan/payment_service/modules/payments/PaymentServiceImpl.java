@@ -117,10 +117,10 @@ public class PaymentServiceImpl implements PaymentService {
         // ============================================
         // IDEMPOTENCY: reuse existing PENDING payment
         // ============================================
-        Optional<Payment> existingPending = paymentRepository
-                .findByUserIdAndCourseIdAndStatus(request.getUserId(), request.getCourseId(), PENDING);
-        if (existingPending.isPresent()) {
-            Payment pending = existingPending.get();
+        List<Payment> pendingList = paymentRepository
+                .findByUserIdAndCourseIdAndStatusOrderByCreatedAtDesc(request.getUserId(), request.getCourseId(), PENDING);
+        if (!pendingList.isEmpty()) {
+            Payment pending = pendingList.get(0);
             log.info("Reusing existing PENDING payment {} for user: {}, course: {}",
                     pending.getReference(), request.getUserId(), request.getCourseId());
             Map<String, Object> existingMeta = Map.of(
