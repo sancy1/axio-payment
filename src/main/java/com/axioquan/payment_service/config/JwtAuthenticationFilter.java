@@ -34,7 +34,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String jwt = getJwtFromRequest(request);
 
-            if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
+            if (!StringUtils.hasText(jwt)) {
+                log.warn("No JWT token on request: {} {}", request.getMethod(), request.getRequestURI());
+            } else if (jwtTokenProvider.validateToken(jwt)) {
                 String userId = jwtTokenProvider.getUserIdFromToken(jwt).toString();
                 String email = jwtTokenProvider.getEmailFromToken(jwt);
                 String role = jwtTokenProvider.getRoleFromToken(jwt);
@@ -47,12 +49,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // Store in security context
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 
-                log.debug("JWT validated for user: {} ({})", userId, email);
-            } else if (StringUtils.hasText(jwt)) {
-                log.warn("Invalid JWT token provided");
+                log.info("JWT validated for user: {} ({})", userId, email);
+            } else {
+                log.warn("Invalid JWT token on request: {} {}", request.getMethod(), request.getRequestURI());
             }
         } catch (Exception ex) {
-            log.error("JWT authentication error: {}", ex.getMessage());
+            log.error("JWT authentication error on {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
         }
 
         filterChain.doFilter(request, response);
