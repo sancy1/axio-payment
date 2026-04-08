@@ -32,6 +32,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     boolean existsByUserIdAndCourseIdAndStatus(UUID userId, UUID courseId, String status);
 
+    Optional<Payment> findByUserIdAndCourseIdAndStatus(UUID userId, UUID courseId, String status);
+
     @Query("""
         SELECT p FROM Payment p 
         WHERE p.status = 'SUCCESS' 

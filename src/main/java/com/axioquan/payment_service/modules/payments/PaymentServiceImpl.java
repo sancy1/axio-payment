@@ -114,6 +114,43 @@ public class PaymentServiceImpl implements PaymentService {
             throw new PaymentAlreadyProcessedException("Course already purchased");
         }
 
+        // ============================================
+        // IDEMPOTENCY: reuse existing PENDING payment
+        // ============================================
+        Optional<Payment> existingPending = paymentRepository
+                .findByUserIdAndCourseIdAndStatus(request.getUserId(), request.getCourseId(), PENDING);
+        if (existingPending.isPresent()) {
+            Payment pending = existingPending.get();
+            log.info("Reusing existing PENDING payment {} for user: {}, course: {}",
+                    pending.getReference(), request.getUserId(), request.getCourseId());
+            Map<String, Object> existingMeta = Map.of(
+                    "user_id", request.getUserId().toString(),
+                    "course_id", request.getCourseId().toString(),
+                    "payment_id", pending.getId().toString()
+            );
+            PaystackInitRequest reuseRequest = PaystackInitRequest.builder()
+                    .email(request.getEmail())
+                    .amount((long) pending.getAmountCents())
+                    .reference(pending.getReference())
+                    .currency(pending.getCurrency())
+                    .callbackUrl(paystackProperties.getCallbackUrl())
+                    .metadata(existingMeta)
+                    .build();
+            try {
+                PaystackInitResponse reuseResponse = paystackClient.initializeTransaction(reuseRequest);
+                return InitializePaymentResponse.builder()
+                        .reference(pending.getReference())
+                        .authorizationUrl(reuseResponse.getData().getAuthorizationUrl())
+                        .accessCode(reuseResponse.getData().getAccessCode())
+                        .build();
+            } catch (Exception e) {
+                log.warn("Paystack reuse call failed, will create fresh payment. Cause: {}", e.getMessage());
+                pending.markAsFailed();
+                paymentRepository.save(pending);
+                // Fall through to create a new payment below
+            }
+        }
+
         // Use price from request (provided by Next.js server which owns course data)
         int priceCents = (request.getAmountCents() != null) ? request.getAmountCents() : 0;
 
