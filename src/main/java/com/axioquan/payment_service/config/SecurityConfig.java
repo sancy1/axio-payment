@@ -30,6 +30,9 @@ public class SecurityConfig {
     @Value("${FRONTEND_URL:http://localhost:3000}")
     private String frontendUrl;
 
+    @Value("${EXTRA_ALLOWED_ORIGINS:}")
+    private String extraAllowedOrigins;
+
     public SecurityConfig(JwtTokenProvider jwtTokenProvider, RateLimitFilter rateLimitFilter) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.rateLimitFilter = rateLimitFilter;
@@ -38,7 +41,16 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(frontendUrl));
+
+        List<String> origins = new java.util.ArrayList<>();
+        origins.add(frontendUrl);
+        if (extraAllowedOrigins != null && !extraAllowedOrigins.isBlank()) {
+            for (String origin : extraAllowedOrigins.split(",")) {
+                String trimmed = origin.trim();
+                if (!trimmed.isEmpty()) origins.add(trimmed);
+            }
+        }
+        config.setAllowedOrigins(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
