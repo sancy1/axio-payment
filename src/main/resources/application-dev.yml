@@ -32,6 +32,21 @@ jwt:
   secret: ${JWT_SECRET:Nd+/W0t/O9O6+TId5eB6W779m02ar5gf+Y13JBvSCuE=}
   expiration: ${JWT_EXPIRATION:604800000}
 
+# Paystack - override callback to localhost for dev
+paystack:
+  secret-key: ${PAYSTACK_SECRET_KEY:sk_test_e7ffba8d840e040ded09907ec868eab1a43fce58}
+  public-key: ${PAYSTACK_PUBLIC_KEY:pk_test_f85f8a8fcc639dd55436ebf69401e4bd9eef2dae}
+  base-url: https://api.paystack.co
+  callback-url: http://localhost:3000/payment-success
+  webhook-url: http://localhost:8080/api/v1/payments/webhook
+  webhook-secret: ${WEBHOOK_SECRET:AxioQuan_Secure_2026_!_99}
+
+app:
+  frontend-url: http://localhost:3000
+  service-secret: ${SERVICE_SECRET:axio-internal-service-secret-2026}
+  ratelimit:
+    enabled: false
+
 logging:
   level:
     com.axioquan.payment_service: DEBUG

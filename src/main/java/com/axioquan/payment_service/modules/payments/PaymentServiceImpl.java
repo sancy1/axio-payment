@@ -13,6 +13,7 @@ import com.axioquan.payment_service.domain.entities.Payment;
 import com.axioquan.payment_service.domain.entities.Transaction;
 import com.axioquan.payment_service.domain.entities.WebhookLog;
 import com.axioquan.payment_service.domain.entities.Course;
+import com.axioquan.payment_service.domain.entities.Enrollment;
 import com.axioquan.payment_service.errors.PaystackApiException;
 import com.axioquan.payment_service.errors.PaymentAlreadyProcessedException;
 import com.axioquan.payment_service.infrastructure.paystack.PaystackClient;
@@ -40,6 +41,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -112,49 +114,24 @@ public class PaymentServiceImpl implements PaymentService {
             throw new PaymentAlreadyProcessedException("Course already purchased");
         }
 
-        // ✅ 1. FETCH COURSE FROM DATABASE
-        Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new RuntimeException("Course not found"));
+        // Use price from request (provided by Next.js server which owns course data)
+        int priceCents = (request.getAmountCents() != null) ? request.getAmountCents() : 0;
 
-        // ============================================
-        // ✅ 2. HANDLE FREE COURSE
-        // ============================================
-        if (course.getPriceCents() == null || course.getPriceCents() == 0) {
-
-            String reference = generateReference();
-
-            Payment payment = Payment.builder()
-                    .reference(reference)
-                    .userId(request.getUserId())
-                    .courseId(request.getCourseId())
-                    .amountCents(0)
-                    .currency("NGN")
-                    .originalCurrency("NGN")
-                    .originalAmountCents(0)
-                    .status(SUCCESS)
-                    .build();
-
-            paymentRepository.save(payment);
-
-            log.info("Free course granted. Reference: {}", reference);
-
-            return InitializePaymentResponse.builder()
-                    .reference(reference)
-                    .authorizationUrl(null)
-                    .accessCode(null)
-                    .build();
+        // Free courses are handled entirely by Next.js enrollment service — not this service
+        if (priceCents == 0) {
+            throw new IllegalArgumentException("Free course enrollment must go through the enrollment service, not the payment service.");
         }
 
         // ============================================
-        // ✅ 3. DETERMINE USER CURRENCY
+        // DETERMINE USER CURRENCY
         // ============================================
         String userCurrency = userCurrencyResolver.resolve(request.getEmail());
 
         // ============================================
-        // ✅ 4. CONVERT PRICE
+        // CONVERT PRICE
         // ============================================
         BigDecimal convertedAmount = currencyConverter.convert(
-                BigDecimal.valueOf(course.getPriceCents()),
+                BigDecimal.valueOf(priceCents),
                 "NGN",
                 userCurrency
         );
@@ -175,7 +152,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .amountCents(amountInCents)
                 .currency(userCurrency)
                 .originalCurrency("NGN")
-                .originalAmountCents(course.getPriceCents())
+                .originalAmountCents(priceCents)
                 .status(PENDING)
                 .build();
 
@@ -236,6 +213,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .orElseThrow(() -> new RuntimeException("Payment not found"));
 
         if (payment.isSuccessful()) {
+            createEnrollmentIfNotExists(payment);
             return buildResponse(payment);
         }
 
@@ -251,6 +229,8 @@ public class PaymentServiceImpl implements PaymentService {
                 payment.setPaystackResponse(objectMapper.writeValueAsString(response));
 
                 paymentRepository.save(payment);
+
+                createEnrollmentIfNotExists(payment);
 
                 createAuditTransaction(payment);
 
@@ -317,6 +297,7 @@ public class PaymentServiceImpl implements PaymentService {
             if (!payment.isSuccessful()) {
                 payment.markAsSuccess();
                 paymentRepository.save(payment);
+                createEnrollmentIfNotExists(payment);
                 createAuditTransaction(payment);
 
                 // ✅ NEW: Create in-app notification for payment success
@@ -516,6 +497,41 @@ public class PaymentServiceImpl implements PaymentService {
                 reference,
                 new java.text.SimpleDateFormat("MMMM dd, yyyy HH:mm:ss").format(paymentDate)
         );
+    }
+
+    private void createEnrollmentIfNotExists(Payment payment) {
+        log.info("Checking/creating enrollment for payment: {}", payment.getReference());
+
+        // Skip if enrollment already exists for this payment
+        if (enrollmentRepository.findByPaymentId(payment.getId()).isPresent()) {
+            log.info("Enrollment already exists for payment: {}", payment.getReference());
+            return;
+        }
+
+        // Skip if user already has an active enrollment for this course
+        if (enrollmentRepository.existsActiveEnrollment(payment.getUserId(), payment.getCourseId())) {
+            log.info("User {} already has active enrollment for course: {}",
+                    payment.getUserId(), payment.getCourseId());
+            return;
+        }
+
+        Enrollment enrollment = Enrollment.builder()
+                .userId(payment.getUserId())
+                .courseId(payment.getCourseId())
+                .paymentId(payment.getId())
+                .enrolledAt(LocalDateTime.now())
+                .enrolledPriceCents(payment.getOriginalAmountCents())
+                .originalAmountCents(payment.getOriginalAmountCents())
+                .originalCurrency(payment.getOriginalCurrency())
+                .accessType("full")
+                .enrollmentSource("PAYMENT")
+                .status("active")
+                .canUnenroll(false)
+                .build();
+
+        enrollmentRepository.save(enrollment);
+        log.info("Enrollment created for user: {}, course: {}",
+                payment.getUserId(), payment.getCourseId());
     }
 
     private VerifyPaymentResponse buildResponse(Payment payment) {

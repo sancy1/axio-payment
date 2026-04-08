@@ -1,7 +1,7 @@
 // ============================================
 // File: RateLimitFilter.java
 // Location: src/main/java/com/axioquan/payment_service/middleware/
-// Purpose: Token bucket rate limiting using Google Guava RateLimiter
+// Purpose: Fixed-window rate limiting using Google Guava Cache + AtomicInteger
 // ============================================
 
 package com.axioquan.payment_service.middleware;
@@ -9,7 +9,7 @@ package com.axioquan.payment_service.middleware;
 import com.axioquan.payment_service.errors.RateLimitExceededException;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import com.google.common.util.concurrent.RateLimiter;
+import java.util.concurrent.atomic.AtomicInteger;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,37 +28,29 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Rate limiting filter using Google Guava RateLimiter (token bucket algorithm).
+ * Rate limiting filter using a fixed-window counter (Guava Cache + AtomicInteger).
  *
  * Supports different rate limits for different endpoints:
  * - /api/v1/payments/initialize: 5 requests/minute per authenticated user
  * - /api/v1/webhooks/paystack: 100 requests/minute per IP address
  *
- * CRITICAL: RateLimiters are stored in-memory using Guava's Cache with TTL.
- * This works well for single-instance deployments. For distributed deployments,
- * consider Redis-backed rate limiting solutions.
+ * Each counter expires after exactly 1 minute (expireAfterWrite), guaranteeing
+ * a clean window reset regardless of ongoing traffic.
  *
- * Permits per second are calculated from the required permits per minute:
- * - Payment initialization: 5 per minute = 5/60 = 0.0833 per second
- * - Webhook: 100 per minute = 100/60 = 1.667 per second
+ * NOTE: Counters are in-memory — suitable for single-instance deployments.
+ * For distributed deployments, use a Redis-backed rate limiter instead.
  */
 @Slf4j
 @Component
 public class RateLimitFilter implements Filter {
 
-    // Cache of rate limiters with 10 minute TTL
-    // Automatically evicts unused limiters to prevent memory leak
-    private final Cache<String, RateLimiter> rateLimiters = CacheBuilder.newBuilder()
+    // Fixed-window request counters per key (user or IP).
+    // expireAfterWrite guarantees the window resets after exactly 1 minute,
+    // regardless of whether the entry is accessed during that period.
+    private final Cache<String, AtomicInteger> requestCounts = CacheBuilder.newBuilder()
             .maximumSize(10000)
-            .expireAfterAccess(10, TimeUnit.MINUTES)
+            .expireAfterWrite(1, TimeUnit.MINUTES)
             .build();
-
-    // Rate limits converted to requests per second
-    // Payment initialization: 5 per minute = 0.0833 per second
-    private static final double PAYMENT_INIT_RATE = 5.0 / 60;
-    
-    // Webhook: 100 per minute = 1.667 per second
-    private static final double WEBHOOK_RATE = 100.0 / 60;
 
     @Value("${app.ratelimit.enabled:true}")
     private boolean rateLimitEnabled;
@@ -125,19 +117,16 @@ public class RateLimitFilter implements Filter {
 
         String path = request.getRequestURI();
         String limitKey;
-        double permitRate;
         long limitsPerMinute;
 
         // Determine rate limit based on endpoint
         if (path.contains("/api/v1/payments/initialize") || path.contains("/v1/payments/initialize")) {
             // Payment initialization: 5 requests per minute per user
             limitKey = getLimitKeyForPaymentInitialize(request);
-            permitRate = PAYMENT_INIT_RATE;
             limitsPerMinute = 5;
         } else if (path.contains("/api/v1/webhooks/paystack") || path.contains("/v1/webhooks/paystack")) {
             // Webhook: 100 requests per minute per IP
             limitKey = getLimitKeyForWebhook(request);
-            permitRate = WEBHOOK_RATE;
             limitsPerMinute = 100;
         } else {
             // Unknown endpoint - don't apply rate limiting
@@ -145,22 +134,21 @@ public class RateLimitFilter implements Filter {
         }
 
         try {
-            // Get or create rate limiter for this key
-            RateLimiter rateLimiter = rateLimiters.get(limitKey, () -> RateLimiter.create(permitRate));
+            // Increment the fixed-window counter for this key.
+            // The cache entry (and thus the counter) expires after exactly 1 minute
+            // via expireAfterWrite, giving a clean reset every 60 seconds.
+            AtomicInteger counter = requestCounts.get(limitKey, AtomicInteger::new);
+            int currentCount = counter.incrementAndGet();
 
-            // Try to acquire a permit (non-blocking, returns immediately)
-            if (!rateLimiter.tryAcquire(1, 0, TimeUnit.SECONDS)) {
-                // Rate limit exceeded
-                // Estimate wait time based on retry-after calculation
-                int retryAfterSeconds = 1;
+            if (currentCount > limitsPerMinute) {
+                int retryAfterSeconds = 60;
 
-                log.warn("Rate limit exceeded for key: {} (limit: {}/min), retry after: {}s",
-                        limitKey, limitsPerMinute, retryAfterSeconds);
+                log.warn("Rate limit exceeded for key: {} ({}/{} per min)",
+                        limitKey, currentCount, limitsPerMinute);
 
-                // Add rate limit headers to response
                 response.setHeader("X-RateLimit-Limit", String.valueOf(limitsPerMinute));
                 response.setHeader("X-RateLimit-Remaining", "0");
-                response.setHeader("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() + retryAfterSeconds * 1000));
+                response.setHeader("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() + retryAfterSeconds * 1000L));
                 response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
 
                 throw new RateLimitExceededException(
@@ -173,15 +161,16 @@ public class RateLimitFilter implements Filter {
                 );
             }
 
-            // Permit acquired successfully - add rate limit info headers
+            // Request is within the allowed window
+            long remaining = Math.max(0, limitsPerMinute - currentCount);
             response.setHeader("X-RateLimit-Limit", String.valueOf(limitsPerMinute));
-            response.setHeader("X-RateLimit-Remaining", "1"); // Conservative estimate
-            response.setHeader("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() + 60000));
+            response.setHeader("X-RateLimit-Remaining", String.valueOf(remaining));
+            response.setHeader("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() + 60000L));
 
-            log.debug("Rate limit check passed for key: {} (limit: {}/min)", limitKey, limitsPerMinute);
+            log.debug("Rate limit check passed for key: {} ({}/{} per min)", limitKey, currentCount, limitsPerMinute);
 
         } catch (ExecutionException e) {
-            // Log error but don't fail the request due to rate limiter issues
+            // Allow the request through rather than blocking on rate-limiter failure
             log.error("Error checking rate limit for key: {}", limitKey, e);
         }
     }

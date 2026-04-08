@@ -75,6 +75,9 @@ paystack:
 
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
+  service-secret: ${SERVICE_SECRET:axio-internal-service-secret-2026}
+  ratelimit:
+    enabled: false
 
 logging:
   level:

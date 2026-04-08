@@ -6,6 +6,7 @@
 package com.axioquan.payment_service.modules.payments.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Builder;
@@ -24,6 +25,16 @@ public class InitializePaymentRequest {
     private UUID courseId;
 
     @Email(message = "Invalid email format")
-    @NotBlank(message = "Email is required") // ✅ FIXED
+    @NotBlank(message = "Email is required")
     private String email;
+
+    /**
+     * Price in kobo (NGN) or smallest currency unit.
+     * Passed by the Next.js server — avoids DB lookup in payment service.
+     * If null or 0, the course is treated as free.
+     */
+    @Min(value = 0, message = "Amount cannot be negative")
+    private Integer amountCents;
+
+    private String courseName;
 }

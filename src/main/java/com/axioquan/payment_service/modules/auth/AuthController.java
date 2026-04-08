@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,10 +26,51 @@ public class AuthController {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
 
+    @Value("${app.service-secret}")
+    private String serviceSecret;
+
     /**
-     * Generate JWT token for testing
-     * Usage: POST /api/v1/auth/generate-token?userId=<user-id>
+     * Service-to-service token generation. No DB lookup required.
+     * Next.js server calls this with the shared SERVICE_SECRET header.
+     * Usage: POST /api/v1/auth/service-token
+     * Header: X-Service-Secret: <secret>
+     * Params: userId, email, name
      */
+    @PostMapping("/service-token")
+    @Operation(
+            summary = "Service-to-Service JWT Token",
+            description = "Issues a JWT for a given userId without any DB lookup. " +
+                    "Requires X-Service-Secret header. Called server-side from Next.js only."
+    )
+    public ResponseEntity<ApiResponse<?>> serviceToken(
+            @RequestHeader("X-Service-Secret") String secret,
+            @RequestParam UUID userId,
+            @RequestParam String email,
+            @RequestParam(required = false, defaultValue = "") String name) {
+
+        if (!serviceSecret.equals(secret)) {
+            log.warn("Service token request with invalid secret from userId={}", userId);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error("Invalid service secret"));
+        }
+
+        log.info("Issuing service token for userId={} email={}", userId, email);
+
+        String token = jwtTokenProvider.generateToken(userId, email, name);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("token", token);
+        data.put("userId", userId);
+        data.put("email", email);
+        data.put("name", name);
+        data.put("expiresIn", "7 days");
+
+        return ResponseEntity.ok(
+                ApiResponse.success("JWT token issued successfully", data)
+        );
+    }
+
+
     @PostMapping("/generate-token")
     @Operation(
             summary = "Generate JWT Token (Testing Only)",
