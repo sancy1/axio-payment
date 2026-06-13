@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Deploy to Render via Webhook
         run: |
-          curl --fail --request POST \
+          curl --fail --silent --show-error --request POST \
             --url "$RENDER_DEPLOY_HOOK_URL" \
             --header "Content-Type: application/json"
         env:
